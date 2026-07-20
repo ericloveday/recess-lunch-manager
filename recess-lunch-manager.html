@@ -7,13 +7,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #000000; font-family: 'Montserrat', sans-serif; color: #ffffff; padding: 24px; }
-.container { max-width: 900px; margin: 0 auto; }
+.container { max-width: 1000px; margin: 0 auto; }
 h1 { font-size: 18pt; font-weight: 800; text-align: center; border: 2px solid #cc0000; border-radius: 8px; padding: 14px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 24px; }
 .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
 .tab-btn { flex: 1; font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 12pt; padding: 12px; background: #111111; border: 2px solid #333333; border-radius: 8px; color: #ffffff; cursor: pointer; text-transform: uppercase; }
@@ -29,6 +30,8 @@ input:focus, select:focus { outline: none; border-color: #cc0000; }
 input[type="file"] { padding: 8px; }
 label.inline { font-size: 10pt; color: #cccccc; display: flex; align-items: center; gap: 6px; min-width: unset; flex: unset; }
 label.inline input[type="checkbox"] { flex: unset; width: auto; }
+label.field-label { font-size: 9.5pt; color: #999999; text-transform: uppercase; display: block; margin-bottom: 4px; letter-spacing: 0.5px; }
+.field-group { flex: 1; min-width: 220px; }
 button.primary { font-family: 'Montserrat', sans-serif; background: #cc0000; color: #fff; border: none; padding: 10px 18px; font-weight: 700; border-radius: 6px; cursor: pointer; text-transform: uppercase; font-size: 10.5pt; }
 button.primary:hover { background: #ff1a1a; }
 button.primary:disabled { background: #444; cursor: not-allowed; }
@@ -38,6 +41,8 @@ table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 th { text-align: left; font-size: 9.5pt; color: #cc0000; text-transform: uppercase; padding: 8px 6px; border-bottom: 2px solid #333333; }
 td { padding: 6px; border-bottom: 1px solid #222222; font-size: 10pt; }
 td input { width: 100%; min-width: 90px; padding: 6px 8px; font-size: 10pt; }
+tr.flagged { background: #2a1500; }
+.flag-icon { color: #ffaa00; font-weight: 700; margin-right: 4px; }
 .row-actions { display: flex; gap: 6px; }
 button.save-btn, button.del-btn { font-family: 'Montserrat', sans-serif; border: none; padding: 6px 10px; border-radius: 5px; font-weight: 700; font-size: 9pt; cursor: pointer; text-transform: uppercase; }
 button.save-btn { background: #2e7d32; color: #fff; }
@@ -47,8 +52,9 @@ button.del-btn:hover { background: #cc0000; }
 .status { text-align: center; font-size: 10pt; color: #888888; margin-top: 12px; min-height: 16px; }
 .status.ok { color: #4caf50; font-weight: 600; }
 .status.err { color: #ff5555; font-weight: 600; }
+.status.warn { color: #ffaa00; font-weight: 600; }
 .empty { text-align: center; color: #666; font-style: italic; padding: 16px; }
-.preview-wrap { max-height: 320px; overflow-y: auto; margin-top: 12px; border: 1px solid #222; border-radius: 6px; }
+.preview-wrap { max-height: 380px; overflow-y: auto; margin-top: 12px; border: 1px solid #222; border-radius: 6px; }
 .preview-count { font-size: 10.5pt; color: #cccccc; margin-bottom: 8px; }
 .import-actions { display: flex; gap: 10px; margin-top: 14px; }
 hr.divider { border: none; border-top: 1px solid #222; margin: 18px 0; }
@@ -128,12 +134,56 @@ hr.divider { border: none; border-top: 1px solid #222; margin: 18px 0; }
 
   <!-- LUNCH PANEL -->
   <div id="panel-lunch" class="panel">
+
     <div class="card">
-      <h2>Add Lunch Pickup Day</h2>
+      <h2>Import Lunch Schedule from Provider Calendar + Roster</h2>
+      <h3>Step 1 — Upload both files</h3>
+      <div class="form-row">
+        <div class="field-group">
+          <label class="field-label">Provider calendar (.xlsx)</label>
+          <input type="file" id="lunch-calendar-file" accept=".xlsx">
+        </div>
+        <div class="field-group">
+          <label class="field-label">Student roster (.csv, one name per line)</label>
+          <input type="file" id="roster-file" accept=".csv">
+        </div>
+      </div>
+      <div class="form-row">
+        <button class="primary" onclick="parseLunchFiles()">Parse &amp; Preview</button>
+      </div>
+      <div class="status" id="lunch-parse-status"></div>
+
+      <div id="lunch-preview-block" style="display:none;">
+        <h3 style="margin-top:16px;">Step 2 — Review before importing</h3>
+        <div class="preview-count" id="lunch-preview-count"></div>
+        <div class="status warn" id="lunch-flag-note" style="display:none;">
+          Rows highlighted orange have a provider that's unusual for that weekday — likely worth double-checking against the source calendar. You can edit the provider directly in the table below.
+        </div>
+        <div class="preview-wrap">
+          <table>
+            <thead><tr><th></th><th>Date</th><th>Day</th><th>Provider</th><th>Student</th></tr></thead>
+            <tbody id="lunch-preview-tbody"></tbody>
+          </table>
+        </div>
+        <div class="form-row" style="margin-top:12px;">
+          <label class="inline"><input type="checkbox" id="lunch-append-mode"> Add to existing schedule instead of replacing it</label>
+        </div>
+        <div class="import-actions">
+          <button class="primary" id="lunch-confirm-import-btn" onclick="confirmLunchImport()">Import to Firebase</button>
+          <button class="secondary" onclick="cancelLunchPreview()">Cancel</button>
+        </div>
+        <div class="status" id="lunch-import-status"></div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="card">
+      <h2>Add Single Lunch Pickup Day</h2>
       <div class="form-row">
         <input type="date" id="l-date" placeholder="Date">
         <input type="text" id="l-provider" placeholder="Provider (e.g. Chick-fil-A)">
-        <input type="text" id="l-student" placeholder="Student (e.g. Saja A)">
+        <input type="text" id="l-student" placeholder="Student (e.g. Saja)">
         <button class="primary" onclick="addLunch()">Add</button>
       </div>
     </div>
@@ -151,16 +201,16 @@ hr.divider { border: none; border-top: 1px solid #222; margin: 18px 0; }
 </div>
 
 <script>
-// ===== PASTE YOUR EXISTING FIREBASE CONFIG HERE (same one used in your other tools) =====
- const firebaseConfig = {
-    apiKey: "AIzaSyBsja7ruNaLkTDTxyga9qd9TZG2Zz5AjHA",
-    authDomain: "bathroom-check-out.firebaseapp.com",
-    databaseURL: "https://bathroom-check-out-default-rtdb.firebaseio.com",
-    projectId: "bathroom-check-out",
-    storageBucket: "bathroom-check-out.firebasestorage.app",
-    messagingSenderId: "385219454253",
-    appId: "1:385219454253:web:970acbfe28672f73c45fa4"
-  };
+// ===== FIREBASE CONFIG =====
+const firebaseConfig = {
+  apiKey: "AIzaSyBsja7ruNaLkTDTxyga9qd9TZG2Zz5AjHA",
+  authDomain: "bathroom-check-out.firebaseapp.com",
+  databaseURL: "https://bathroom-check-out-default-rtdb.firebaseio.com",
+  projectId: "bathroom-check-out",
+  storageBucket: "bathroom-check-out.firebasestorage.app",
+  messagingSenderId: "385219454253",
+  appId: "1:385219454253:web:970acbfe28672f73c45fa4"
+};
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 const recessRef = db.ref("recessLocations");
@@ -179,7 +229,7 @@ function switchTab(tab) {
 }
 
 // =========================================================
-// DOCX IMPORT
+// RECESS DOCX IMPORT
 // =========================================================
 let pendingImportData = [];
 
@@ -204,7 +254,6 @@ function parseDateRange(text, yearState) {
     ed = parseInt(soloMatch[1], 10);
   }
 
-  // Detect school-year rollover (e.g. Dec -> Jan)
   if (yearState.lastMonth !== null && sm < yearState.lastMonth) {
     yearState.year++;
   }
@@ -256,7 +305,6 @@ async function parseDocx() {
       const cells = Array.from(row.querySelectorAll("td, th")).map(c => c.textContent.trim());
       if (cells.length === 0) return;
 
-      // Header row — figure out which column matches the chosen grade
       if (cells[0].toUpperCase().includes("WEEK")) {
         const idx = cells.findIndex(c => c.toUpperCase().includes(gradeKeyword));
         if (idx >= 0) columnIndex = idx;
@@ -267,7 +315,7 @@ async function parseDocx() {
 
       const dateCell = cells[0];
       const locationCell = cells[columnIndex];
-      if (!dateCell.includes("/")) return; // skip blank separator rows
+      if (!dateCell.includes("/")) return;
       if (!locationCell) return;
 
       const range = parseDateRange(dateCell, yearState);
@@ -394,6 +442,277 @@ recessRef.on("value", snap => {
     tbody.appendChild(tr);
   });
 });
+
+// =========================================================
+// LUNCH — provider calendar + roster import
+// =========================================================
+const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+
+// Order matters: remove longer/more-specific phrases first so partial patterns
+// (like "NO SCHOOL") don't leave stray leftover words (like "FOR STUDENTS").
+// Patterns match across the whole cell (labels can span multiple lines, e.g. "LUNCH\nNOT\nSERVED").
+const LABEL_PATTERNS = [
+  /NO SCHOOL FOR STUDENTS/gi,
+  /LUNCH\s*NOT\s*SERVED/gi,
+  /[A-Za-z]+\s+BREAK/gi,
+  /NO SCHOOL/gi,
+  /EARLY RELEASE/gi,
+  /N\s*O\s*T\s*E\s*S/gi
+];
+
+function cleanProviderCell(cellText) {
+  let normalized = cellText.replace(/\r?\n/g, " ").replace(/\s+/g, " ").trim();
+  LABEL_PATTERNS.forEach(p => { normalized = normalized.replace(p, ""); });
+  return normalized.replace(/\s+/g, " ").trim();
+}
+
+function parseProviderWorkbook(arrayBuffer) {
+  const wb = XLSX.read(arrayBuffer, { type: "array" });
+  const entries = {}; // dateISO -> provider  (later sheets overwrite earlier ones)
+
+  wb.SheetNames.forEach(sheetName => {
+    const ws = wb.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: undefined });
+    if (!rows.length) return;
+
+    // Title cell — look in first couple rows, column B (index 1), for "Month Year"
+    let monthNum = null, yearNum = null;
+    for (let r = 0; r < Math.min(rows.length, 3); r++) {
+      const cell = rows[r] && rows[r][1];
+      if (typeof cell === "string") {
+        const m = cell.trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+        if (m) {
+          const idx = MONTH_NAMES.findIndex(mn => mn.toLowerCase() === m[1].toLowerCase());
+          if (idx >= 0) { monthNum = idx + 1; yearNum = parseInt(m[2], 10); }
+        }
+      }
+    }
+    if (monthNum === null) return; // couldn't identify this sheet's month, skip it
+
+    // Find the SUN/MON/... header row to know where the grid starts
+    let headerRowIdx = -1;
+    for (let r = 0; r < rows.length; r++) {
+      const cell = rows[r] && rows[r][1];
+      if (typeof cell === "string" && cell.trim().toUpperCase() === "SUN") { headerRowIdx = r; break; }
+    }
+    if (headerRowIdx === -1) return;
+
+    let currentMonth = monthNum;
+    let currentYear = yearNum;
+
+    let r = headerRowIdx + 1;
+    while (r < rows.length) {
+      const dayRow = rows[r] || [];
+      const hasAnyDayNum = [1,2,3,4,5,6,7].some(c => typeof dayRow[c] === "number");
+      if (!hasAnyDayNum) break; // end of this sheet's calendar grid
+
+      const provRow = rows[r + 1] || [];
+      let lastDayInRow = null;
+
+      for (let c = 1; c <= 7; c++) {
+        const dayVal = dayRow[c];
+        if (typeof dayVal !== "number") continue;
+
+        if (lastDayInRow !== null && dayVal < lastDayInRow) {
+          currentMonth += 1;
+          if (currentMonth > 12) { currentMonth = 1; currentYear += 1; }
+        }
+        lastDayInRow = dayVal;
+
+        // Only assign pickups Mon-Fri (columns 2-6); columns 1 and 7 are Sun/Sat
+        if (c === 1 || c === 7) continue;
+
+        const rawCell = provRow[c];
+        if (rawCell === undefined || rawCell === null) continue;
+        const provider = cleanProviderCell(String(rawCell));
+        if (!provider) continue; // pure label (break/no-school/lunch-not-served), skip
+
+        const pad = n => String(n).padStart(2, "0");
+        const iso = `${currentYear}-${pad(currentMonth)}-${pad(dayVal)}`;
+        entries[iso] = provider; // later sheet overwrites earlier one for same date
+      }
+
+      r += 2;
+    }
+  });
+
+  return Object.entries(entries)
+    .map(([date, provider]) => ({ date, provider }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function flagWeekdayOutliers(entries) {
+  // Build weekday -> provider -> count
+  const tally = {}; // dow -> { provider: count }
+  entries.forEach(e => {
+    const d = new Date(e.date + "T00:00:00");
+    const dow = d.getDay();
+    tally[dow] = tally[dow] || {};
+    tally[dow][e.provider] = (tally[dow][e.provider] || 0) + 1;
+  });
+
+  // Top-2 providers per weekday
+  const top2ByDow = {};
+  Object.keys(tally).forEach(dow => {
+    const sorted = Object.entries(tally[dow]).sort((a, b) => b[1] - a[1]);
+    top2ByDow[dow] = sorted.slice(0, 2).map(x => x[0]);
+  });
+
+  return entries.map(e => {
+    const d = new Date(e.date + "T00:00:00");
+    const dow = d.getDay();
+    const flagged = !(top2ByDow[dow] || []).includes(e.provider);
+    return { ...e, dow, flagged };
+  });
+}
+
+function parseRosterCSV(text) {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length === 0) return [];
+
+  // Expect a header row like "Last Name,First Name" — skip it.
+  const header = lines[0].toLowerCase();
+  const dataLines = header.includes("last") && header.includes("first") ? lines.slice(1) : lines;
+
+  return dataLines.map(line => {
+    const parts = line.split(",");
+    const lastName = (parts[0] || "").trim();
+    const firstName = (parts[1] || "").trim();
+    if (!lastName || !firstName) return null;
+
+    // For multi-word last names (e.g. "Bolivar Jimenez"), use the initial of the FIRST word.
+    const initial = lastName.split(/\s+/)[0].charAt(0).toUpperCase();
+    return `${firstName} ${initial}`;
+  }).filter(Boolean);
+}
+
+let pendingLunchData = [];
+
+async function parseLunchFiles() {
+  const calFile = document.getElementById("lunch-calendar-file").files[0];
+  const rosterFile = document.getElementById("roster-file").files[0];
+  const status = document.getElementById("lunch-parse-status");
+
+  if (!calFile || !rosterFile) {
+    status.className = "status err";
+    status.textContent = "Choose both the provider calendar and the roster file.";
+    return;
+  }
+
+  status.className = "status";
+  status.textContent = "Reading files...";
+
+  try {
+    const calBuffer = await calFile.arrayBuffer();
+    const entries = parseProviderWorkbook(calBuffer);
+
+    if (entries.length === 0) {
+      status.className = "status err";
+      status.textContent = "Couldn't find any pickup days in that calendar. Check the file format.";
+      return;
+    }
+
+    const flagged = flagWeekdayOutliers(entries);
+
+    const rosterText = await rosterFile.text();
+    const roster = parseRosterCSV(rosterText);
+
+    if (roster.length === 0) {
+      status.className = "status err";
+      status.textContent = "Roster file appears empty.";
+      return;
+    }
+
+    const combined = flagged.map((e, i) => ({
+      date: e.date,
+      provider: e.provider,
+      flagged: e.flagged,
+      student: roster[i % roster.length]
+    }));
+
+    pendingLunchData = combined;
+    const flagCount = combined.filter(e => e.flagged).length;
+    status.className = "status ok";
+    status.textContent = `Parsed ${combined.length} pickup days (${flagCount} flagged for review). Review below before importing.`;
+    showLunchPreview(combined);
+
+  } catch (err) {
+    status.className = "status err";
+    status.textContent = "Error reading files: " + err.message;
+  }
+}
+
+const WEEKDAY_LABELS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+
+function showLunchPreview(data) {
+  const tbody = document.getElementById("lunch-preview-tbody");
+  const block = document.getElementById("lunch-preview-block");
+  const count = document.getElementById("lunch-preview-count");
+  const flagNote = document.getElementById("lunch-flag-note");
+  tbody.innerHTML = "";
+
+  data.forEach((e, i) => {
+    const dow = new Date(e.date + "T00:00:00").getDay();
+    const tr = document.createElement("tr");
+    if (e.flagged) tr.classList.add("flagged");
+    tr.innerHTML = `
+      <td>${e.flagged ? '<span class="flag-icon">⚠</span>' : ""}</td>
+      <td>${e.date}</td>
+      <td>${WEEKDAY_LABELS[dow]}</td>
+      <td><input type="text" value="${e.provider}" data-idx="${i}" class="lunch-provider-input" onchange="updatePendingProvider(${i}, this.value)"></td>
+      <td>${e.student}</td>`;
+    tbody.appendChild(tr);
+  });
+
+  count.textContent = `${data.length} pickup days ready to import`;
+  flagNote.style.display = data.some(e => e.flagged) ? "block" : "none";
+  block.style.display = "block";
+}
+
+function updatePendingProvider(idx, newVal) {
+  if (pendingLunchData[idx]) pendingLunchData[idx].provider = newVal;
+}
+
+function cancelLunchPreview() {
+  pendingLunchData = [];
+  document.getElementById("lunch-preview-block").style.display = "none";
+  document.getElementById("lunch-parse-status").textContent = "";
+  document.getElementById("lunch-calendar-file").value = "";
+  document.getElementById("roster-file").value = "";
+}
+
+async function confirmLunchImport() {
+  const btn = document.getElementById("lunch-confirm-import-btn");
+  const importStatus = document.getElementById("lunch-import-status");
+  const appendMode = document.getElementById("lunch-append-mode").checked;
+
+  btn.disabled = true;
+  importStatus.className = "status";
+  importStatus.textContent = "Importing...";
+
+  try {
+    if (!appendMode) {
+      await lunchRef.remove();
+    }
+    const updates = {};
+    pendingLunchData.forEach(entry => {
+      const key = lunchRef.push().key;
+      updates[key] = { date: entry.date, provider: entry.provider, student: entry.student };
+    });
+    await lunchRef.update(updates);
+
+    importStatus.className = "status ok";
+    importStatus.textContent = `Done — ${pendingLunchData.length} pickup days imported.`;
+    setTimeout(() => {
+      cancelLunchPreview();
+      importStatus.textContent = "";
+    }, 2000);
+  } catch (err) {
+    importStatus.className = "status err";
+    importStatus.textContent = "Import failed: " + err.message;
+    btn.disabled = false;
+  }
+}
 
 // =========================================================
 // LUNCH — manual add/edit/delete
