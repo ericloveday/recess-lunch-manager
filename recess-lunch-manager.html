@@ -475,25 +475,36 @@ function parseProviderWorkbook(arrayBuffer) {
     const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: undefined });
     if (!rows.length) return;
 
-    // Title cell — look in first couple rows, column B (index 1), for "Month Year"
+    // Title cell ("September 2025" etc.) — scan all columns of the first few rows,
+    // since column position can shift depending on the sheet's used range.
     let monthNum = null, yearNum = null;
+    outerTitle:
     for (let r = 0; r < Math.min(rows.length, 3); r++) {
-      const cell = rows[r] && rows[r][1];
-      if (typeof cell === "string") {
-        const m = cell.trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
-        if (m) {
-          const idx = MONTH_NAMES.findIndex(mn => mn.toLowerCase() === m[1].toLowerCase());
-          if (idx >= 0) { monthNum = idx + 1; yearNum = parseInt(m[2], 10); }
+      const row = rows[r] || [];
+      for (let c = 0; c < row.length; c++) {
+        const cell = row[c];
+        if (typeof cell === "string") {
+          const m = cell.trim().match(/^([A-Za-z]+)\s+(\d{4})$/);
+          if (m) {
+            const idx = MONTH_NAMES.findIndex(mn => mn.toLowerCase() === m[1].toLowerCase());
+            if (idx >= 0) { monthNum = idx + 1; yearNum = parseInt(m[2], 10); break outerTitle; }
+          }
         }
       }
     }
     if (monthNum === null) return; // couldn't identify this sheet's month, skip it
 
-    // Find the SUN/MON/... header row to know where the grid starts
-    let headerRowIdx = -1;
+    // Find the "SUN" header cell — its column becomes the base for Mon..Sat offsets,
+    // so this works regardless of which spreadsheet column it actually lands in.
+    let headerRowIdx = -1, sunCol = -1;
+    outerHeader:
     for (let r = 0; r < rows.length; r++) {
-      const cell = rows[r] && rows[r][1];
-      if (typeof cell === "string" && cell.trim().toUpperCase() === "SUN") { headerRowIdx = r; break; }
+      const row = rows[r] || [];
+      for (let c = 0; c < row.length; c++) {
+        if (typeof row[c] === "string" && row[c].trim().toUpperCase() === "SUN") {
+          headerRowIdx = r; sunCol = c; break outerHeader;
+        }
+      }
     }
     if (headerRowIdx === -1) return;
 
@@ -503,13 +514,14 @@ function parseProviderWorkbook(arrayBuffer) {
     let r = headerRowIdx + 1;
     while (r < rows.length) {
       const dayRow = rows[r] || [];
-      const hasAnyDayNum = [1,2,3,4,5,6,7].some(c => typeof dayRow[c] === "number");
+      const hasAnyDayNum = [0,1,2,3,4,5,6].some(off => typeof dayRow[sunCol + off] === "number");
       if (!hasAnyDayNum) break; // end of this sheet's calendar grid
 
       const provRow = rows[r + 1] || [];
       let lastDayInRow = null;
 
-      for (let c = 1; c <= 7; c++) {
+      for (let off = 0; off <= 6; off++) {
+        const c = sunCol + off;
         const dayVal = dayRow[c];
         if (typeof dayVal !== "number") continue;
 
@@ -519,8 +531,8 @@ function parseProviderWorkbook(arrayBuffer) {
         }
         lastDayInRow = dayVal;
 
-        // Only assign pickups Mon-Fri (columns 2-6); columns 1 and 7 are Sun/Sat
-        if (c === 1 || c === 7) continue;
+        // Only assign pickups Mon-Fri (offsets 1-5); offsets 0 and 6 are Sun/Sat
+        if (off === 0 || off === 6) continue;
 
         const rawCell = provRow[c];
         if (rawCell === undefined || rawCell === null) continue;
