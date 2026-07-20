@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #000000; font-family: 'Montserrat', sans-serif; color: #ffffff; padding: 24px; }
@@ -21,14 +22,21 @@ h1 { font-size: 18pt; font-weight: 800; text-align: center; border: 2px solid #c
 .panel.active { display: block; }
 .card { background: #111111; border: 1px solid #222222; border-radius: 10px; padding: 18px; margin-bottom: 16px; }
 .card h2 { font-size: 12pt; color: #cc0000; text-transform: uppercase; margin-bottom: 14px; letter-spacing: 0.5px; }
-.form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.card h3 { font-size: 10.5pt; color: #999999; text-transform: uppercase; margin-bottom: 10px; letter-spacing: 0.5px; }
+.form-row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; align-items: center; }
 input, select { font-family: 'Montserrat', sans-serif; background: #000000; border: 2px solid #333333; color: #ffffff; padding: 9px 10px; border-radius: 6px; font-size: 10.5pt; flex: 1; min-width: 120px; }
 input:focus, select:focus { outline: none; border-color: #cc0000; }
+input[type="file"] { padding: 8px; }
+label.inline { font-size: 10pt; color: #cccccc; display: flex; align-items: center; gap: 6px; min-width: unset; flex: unset; }
+label.inline input[type="checkbox"] { flex: unset; width: auto; }
 button.primary { font-family: 'Montserrat', sans-serif; background: #cc0000; color: #fff; border: none; padding: 10px 18px; font-weight: 700; border-radius: 6px; cursor: pointer; text-transform: uppercase; font-size: 10.5pt; }
 button.primary:hover { background: #ff1a1a; }
+button.primary:disabled { background: #444; cursor: not-allowed; }
+button.secondary { font-family: 'Montserrat', sans-serif; background: #333333; color: #fff; border: none; padding: 10px 18px; font-weight: 700; border-radius: 6px; cursor: pointer; text-transform: uppercase; font-size: 10.5pt; }
+button.secondary:hover { background: #444444; }
 table { width: 100%; border-collapse: collapse; margin-top: 10px; }
 th { text-align: left; font-size: 9.5pt; color: #cc0000; text-transform: uppercase; padding: 8px 6px; border-bottom: 2px solid #333333; }
-td { padding: 6px; border-bottom: 1px solid #222222; }
+td { padding: 6px; border-bottom: 1px solid #222222; font-size: 10pt; }
 td input { width: 100%; min-width: 90px; padding: 6px 8px; font-size: 10pt; }
 .row-actions { display: flex; gap: 6px; }
 button.save-btn, button.del-btn { font-family: 'Montserrat', sans-serif; border: none; padding: 6px 10px; border-radius: 5px; font-weight: 700; font-size: 9pt; cursor: pointer; text-transform: uppercase; }
@@ -37,7 +45,13 @@ button.save-btn:hover { background: #388e3c; }
 button.del-btn { background: #444444; color: #fff; }
 button.del-btn:hover { background: #cc0000; }
 .status { text-align: center; font-size: 10pt; color: #888888; margin-top: 12px; min-height: 16px; }
+.status.ok { color: #4caf50; font-weight: 600; }
+.status.err { color: #ff5555; font-weight: 600; }
 .empty { text-align: center; color: #666; font-style: italic; padding: 16px; }
+.preview-wrap { max-height: 320px; overflow-y: auto; margin-top: 12px; border: 1px solid #222; border-radius: 6px; }
+.preview-count { font-size: 10.5pt; color: #cccccc; margin-bottom: 8px; }
+.import-actions { display: flex; gap: 10px; margin-top: 14px; }
+hr.divider { border: none; border-top: 1px solid #222; margin: 18px 0; }
 </style>
 </head>
 <body>
@@ -51,8 +65,50 @@ button.del-btn:hover { background: #cc0000; }
 
   <!-- RECESS PANEL -->
   <div id="panel-recess" class="panel active">
+
     <div class="card">
-      <h2>Add Recess Week</h2>
+      <h2>Import Recess Schedule from Word Doc</h2>
+      <h3>Step 1 — Upload &amp; settings</h3>
+      <div class="form-row">
+        <input type="file" id="docx-file" accept=".docx">
+      </div>
+      <div class="form-row">
+        <select id="import-grade">
+          <option value="6TH">6th Grade column</option>
+          <option value="7TH" selected>7th Grade column</option>
+          <option value="8TH">8th Grade column</option>
+        </select>
+        <input type="number" id="import-year" placeholder="School year start (e.g. 2026)">
+      </div>
+      <div class="form-row">
+        <button class="primary" onclick="parseDocx()">Parse &amp; Preview</button>
+      </div>
+      <div class="status" id="parse-status"></div>
+
+      <div id="preview-block" style="display:none;">
+        <h3 style="margin-top:16px;">Step 2 — Review before importing</h3>
+        <div class="preview-count" id="preview-count"></div>
+        <div class="preview-wrap">
+          <table>
+            <thead><tr><th>Start</th><th>End</th><th>Location</th></tr></thead>
+            <tbody id="import-preview-tbody"></tbody>
+          </table>
+        </div>
+        <div class="form-row" style="margin-top:12px;">
+          <label class="inline"><input type="checkbox" id="append-mode"> Add to existing schedule instead of replacing it</label>
+        </div>
+        <div class="import-actions">
+          <button class="primary" id="confirm-import-btn" onclick="confirmImport()">Import to Firebase</button>
+          <button class="secondary" onclick="cancelPreview()">Cancel</button>
+        </div>
+        <div class="status" id="import-status"></div>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="card">
+      <h2>Add Single Recess Week</h2>
       <div class="form-row">
         <input type="date" id="r-start" placeholder="Start">
         <input type="date" id="r-end" placeholder="End">
@@ -122,7 +178,178 @@ function switchTab(tab) {
   event.target.classList.add("active");
 }
 
-// ---------- RECESS ----------
+// =========================================================
+// DOCX IMPORT
+// =========================================================
+let pendingImportData = [];
+
+function parseDateRange(text, yearState) {
+  const parts = text.split("-").map(s => s.trim());
+  if (parts.length < 2) return null;
+
+  const startMatch = parts[0].match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (!startMatch) return null;
+  const sm = parseInt(startMatch[1], 10);
+  const sd = parseInt(startMatch[2], 10);
+
+  let em, ed;
+  const endMatch = parts[1].match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (endMatch) {
+    em = parseInt(endMatch[1], 10);
+    ed = parseInt(endMatch[2], 10);
+  } else {
+    const soloMatch = parts[1].match(/^(\d{1,2})$/);
+    if (!soloMatch) return null;
+    em = sm;
+    ed = parseInt(soloMatch[1], 10);
+  }
+
+  // Detect school-year rollover (e.g. Dec -> Jan)
+  if (yearState.lastMonth !== null && sm < yearState.lastMonth) {
+    yearState.year++;
+  }
+  yearState.lastMonth = sm;
+
+  const startYear = yearState.year;
+  const endYear = (em < sm) ? startYear + 1 : startYear;
+
+  const pad = n => String(n).padStart(2, "0");
+  return {
+    start: `${startYear}-${pad(sm)}-${pad(sd)}`,
+    end: `${endYear}-${pad(em)}-${pad(ed)}`
+  };
+}
+
+async function parseDocx() {
+  const fileInput = document.getElementById("docx-file");
+  const parseStatus = document.getElementById("parse-status");
+  const yearVal = document.getElementById("import-year").value;
+  const gradeKeyword = document.getElementById("import-grade").value;
+
+  if (!fileInput.files.length) {
+    parseStatus.className = "status err";
+    parseStatus.textContent = "Choose a .docx file first.";
+    return;
+  }
+  if (!yearVal) {
+    parseStatus.className = "status err";
+    parseStatus.textContent = "Enter the school year start (e.g. 2026 for a doc starting in August 2026).";
+    return;
+  }
+
+  parseStatus.className = "status";
+  parseStatus.textContent = "Reading document...";
+
+  try {
+    const file = fileInput.files[0];
+    const arrayBuffer = await file.arrayBuffer();
+    const result = await mammoth.convertToHtml({ arrayBuffer });
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(result.value, "text/html");
+    const rows = doc.querySelectorAll("tr");
+
+    let columnIndex = null;
+    const yearState = { year: parseInt(yearVal, 10), lastMonth: null };
+    const parsed = [];
+
+    rows.forEach(row => {
+      const cells = Array.from(row.querySelectorAll("td, th")).map(c => c.textContent.trim());
+      if (cells.length === 0) return;
+
+      // Header row — figure out which column matches the chosen grade
+      if (cells[0].toUpperCase().includes("WEEK")) {
+        const idx = cells.findIndex(c => c.toUpperCase().includes(gradeKeyword));
+        if (idx >= 0) columnIndex = idx;
+        return;
+      }
+
+      if (columnIndex === null || cells.length <= columnIndex) return;
+
+      const dateCell = cells[0];
+      const locationCell = cells[columnIndex];
+      if (!dateCell.includes("/")) return; // skip blank separator rows
+      if (!locationCell) return;
+
+      const range = parseDateRange(dateCell, yearState);
+      if (!range) return;
+
+      parsed.push({ start: range.start, end: range.end, location: locationCell });
+    });
+
+    if (parsed.length === 0) {
+      parseStatus.className = "status err";
+      parseStatus.textContent = "Couldn't find any matching rows. Check the grade column and file format.";
+      return;
+    }
+
+    pendingImportData = parsed;
+    parseStatus.className = "status ok";
+    parseStatus.textContent = `Parsed ${parsed.length} weeks. Review below before importing.`;
+    showPreview(parsed);
+
+  } catch (err) {
+    parseStatus.className = "status err";
+    parseStatus.textContent = "Error reading file: " + err.message;
+  }
+}
+
+function showPreview(parsed) {
+  const tbody = document.getElementById("import-preview-tbody");
+  const block = document.getElementById("preview-block");
+  const count = document.getElementById("preview-count");
+  tbody.innerHTML = "";
+  parsed.forEach(e => {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${e.start}</td><td>${e.end}</td><td>${e.location}</td>`;
+    tbody.appendChild(tr);
+  });
+  count.textContent = `${parsed.length} weeks ready to import`;
+  block.style.display = "block";
+}
+
+function cancelPreview() {
+  pendingImportData = [];
+  document.getElementById("preview-block").style.display = "none";
+  document.getElementById("parse-status").textContent = "";
+  document.getElementById("docx-file").value = "";
+}
+
+async function confirmImport() {
+  const btn = document.getElementById("confirm-import-btn");
+  const importStatus = document.getElementById("import-status");
+  const appendMode = document.getElementById("append-mode").checked;
+
+  btn.disabled = true;
+  importStatus.className = "status";
+  importStatus.textContent = "Importing...";
+
+  try {
+    if (!appendMode) {
+      await recessRef.remove();
+    }
+    const updates = {};
+    pendingImportData.forEach(entry => {
+      const key = recessRef.push().key;
+      updates[key] = entry;
+    });
+    await recessRef.update(updates);
+
+    importStatus.className = "status ok";
+    importStatus.textContent = `Done — ${pendingImportData.length} weeks imported.`;
+    setTimeout(() => {
+      cancelPreview();
+      importStatus.textContent = "";
+    }, 2000);
+  } catch (err) {
+    importStatus.className = "status err";
+    importStatus.textContent = "Import failed: " + err.message;
+    btn.disabled = false;
+  }
+}
+
+// =========================================================
+// RECESS — manual add/edit/delete
+// =========================================================
 function addRecess() {
   const start = document.getElementById("r-start").value;
   const end = document.getElementById("r-end").value;
@@ -168,7 +395,9 @@ recessRef.on("value", snap => {
   });
 });
 
-// ---------- LUNCH ----------
+// =========================================================
+// LUNCH — manual add/edit/delete
+// =========================================================
 function addLunch() {
   const date = document.getElementById("l-date").value;
   const provider = document.getElementById("l-provider").value.trim();
