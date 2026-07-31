@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -216,6 +217,15 @@ const db = firebase.database();
 const recessRef = db.ref("recessLocations");
 const lunchRef = db.ref("lunchPickups");
 
+// Sign in anonymously so the database rules (auth != null) let this page
+// read/write. This is invisible — no login screen appears.
+const authReady = new Promise((resolve, reject) => {
+  firebase.auth().onAuthStateChanged(user => {
+    if (user) resolve(user);
+  });
+  firebase.auth().signInAnonymously().catch(reject);
+});
+
 function setStatus(msg) {
   document.getElementById("status").textContent = msg;
   setTimeout(() => { document.getElementById("status").textContent = ""; }, 2500);
@@ -421,27 +431,6 @@ function saveRecess(id) {
 function deleteRecess(id) {
   if (confirm("Delete this recess entry?")) recessRef.child(id).remove();
 }
-
-recessRef.on("value", snap => {
-  const data = snap.val() || {};
-  const entries = Object.entries(data).sort((a, b) => a[1].start.localeCompare(b[1].start));
-  const tbody = document.getElementById("recess-tbody");
-  const empty = document.getElementById("recess-empty");
-  tbody.innerHTML = "";
-  empty.style.display = entries.length ? "none" : "block";
-  entries.forEach(([id, e]) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input type="date" id="r-start-${id}" value="${e.start}"></td>
-      <td><input type="date" id="r-end-${id}" value="${e.end}"></td>
-      <td><input type="text" id="r-loc-${id}" value="${e.location}"></td>
-      <td class="row-actions">
-        <button class="save-btn" onclick="saveRecess('${id}')">Save</button>
-        <button class="del-btn" onclick="deleteRecess('${id}')">Delete</button>
-      </td>`;
-    tbody.appendChild(tr);
-  });
-});
 
 // =========================================================
 // LUNCH — provider calendar + roster import
@@ -753,25 +742,52 @@ function deleteLunch(id) {
   if (confirm("Delete this lunch entry?")) lunchRef.child(id).remove();
 }
 
-lunchRef.on("value", snap => {
-  const data = snap.val() || {};
-  const entries = Object.entries(data).sort((a, b) => a[1].date.localeCompare(b[1].date));
-  const tbody = document.getElementById("lunch-tbody");
-  const empty = document.getElementById("lunch-empty");
-  tbody.innerHTML = "";
-  empty.style.display = entries.length ? "none" : "block";
-  entries.forEach(([id, e]) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input type="date" id="l-date-${id}" value="${e.date}"></td>
-      <td><input type="text" id="l-prov-${id}" value="${e.provider}"></td>
-      <td><input type="text" id="l-stu-${id}" value="${e.student}"></td>
-      <td class="row-actions">
-        <button class="save-btn" onclick="saveLunch('${id}')">Save</button>
-        <button class="del-btn" onclick="deleteLunch('${id}')">Delete</button>
-      </td>`;
-    tbody.appendChild(tr);
+// --- Attach both live listeners once anonymous sign-in completes ---
+authReady.then(() => {
+  recessRef.on("value", snap => {
+    const data = snap.val() || {};
+    const entries = Object.entries(data).sort((a, b) => a[1].start.localeCompare(b[1].start));
+    const tbody = document.getElementById("recess-tbody");
+    const empty = document.getElementById("recess-empty");
+    tbody.innerHTML = "";
+    empty.style.display = entries.length ? "none" : "block";
+    entries.forEach(([id, e]) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="date" id="r-start-${id}" value="${e.start}"></td>
+        <td><input type="date" id="r-end-${id}" value="${e.end}"></td>
+        <td><input type="text" id="r-loc-${id}" value="${e.location}"></td>
+        <td class="row-actions">
+          <button class="save-btn" onclick="saveRecess('${id}')">Save</button>
+          <button class="del-btn" onclick="deleteRecess('${id}')">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
   });
+
+  lunchRef.on("value", snap => {
+    const data = snap.val() || {};
+    const entries = Object.entries(data).sort((a, b) => a[1].date.localeCompare(b[1].date));
+    const tbody = document.getElementById("lunch-tbody");
+    const empty = document.getElementById("lunch-empty");
+    tbody.innerHTML = "";
+    empty.style.display = entries.length ? "none" : "block";
+    entries.forEach(([id, e]) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td><input type="date" id="l-date-${id}" value="${e.date}"></td>
+        <td><input type="text" id="l-prov-${id}" value="${e.provider}"></td>
+        <td><input type="text" id="l-stu-${id}" value="${e.student}"></td>
+        <td class="row-actions">
+          <button class="save-btn" onclick="saveLunch('${id}')">Save</button>
+          <button class="del-btn" onclick="deleteLunch('${id}')">Delete</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+  });
+}).catch(err => {
+  console.error("Anonymous sign-in failed:", err);
+  setStatus("Couldn't connect to the database. Check your connection and reload the page.");
 });
 </script>
 </body>
