@@ -663,23 +663,47 @@ function flagWeekdayOutliers(entries) {
   });
 }
 
+// Parses a roster CSV where each line is a single CSV field like:
+//   "Armstrong, Alexa M"
+//   "Dhillon, Seerat "
+// Excel/Sheets wraps the whole field in quotes because the last name contains
+// a comma. We split on the FIRST comma only (honoring the surrounding quotes)
+// to get lastName and everything after it. That "everything after" part is
+// "FirstName MiddleInitial" — we only want the first name from it. The display
+// name is built as "FirstName L" where L is the first letter of the LAST NAME
+// (for disambiguating students with the same first name), matching the pattern
+// used elsewhere in the tool suite. Any middle initial in the roster is discarded.
 function parseRosterCSV(text) {
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  if (lines.length === 0) return [];
+  const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (rawLines.length === 0) return [];
 
-  // Expect a header row like "Last Name,First Name" — skip it.
-  const header = lines[0].toLowerCase();
-  const dataLines = header.includes("last") && header.includes("first") ? lines.slice(1) : lines;
+  // Strip a single layer of surrounding quotes (and unescape doubled quotes)
+  // if the whole line is wrapped in quotes.
+  const lines = rawLines.map(l => {
+    if (l.startsWith('"') && l.endsWith('"') && l.length >= 2) {
+      return l.slice(1, -1).replace(/""/g, '"');
+    }
+    return l;
+  });
+
+  // Skip a header row like "Last Name, First Name" if present.
+  const headerCheck = lines[0].toLowerCase();
+  const dataLines = (headerCheck.includes("last") && headerCheck.includes("first"))
+    ? lines.slice(1)
+    : lines;
 
   return dataLines.map(line => {
-    const parts = line.split(",");
-    const lastName = (parts[0] || "").trim();
-    const firstName = (parts[1] || "").trim();
-    if (!lastName || !firstName) return null;
+    const commaIdx = line.indexOf(",");
+    if (commaIdx === -1) return null;
+    const lastName = line.slice(0, commaIdx).trim();
+    const afterComma = line.slice(commaIdx + 1).trim();
+    if (!lastName || !afterComma) return null;
 
-    // For multi-word last names (e.g. "Bolivar Jimenez"), use the initial of the FIRST word.
-    const initial = lastName.split(/\s+/)[0].charAt(0).toUpperCase();
-    return `${firstName} ${initial}`;
+    // afterComma is "FirstName MiddleInitial" (or just "FirstName") — take only
+    // the first word as the first name; discard any middle initial.
+    const firstName = afterComma.split(/\s+/)[0];
+    const lastInitial = lastName.charAt(0).toUpperCase();
+    return `${firstName} ${lastInitial}`;
   }).filter(Boolean);
 }
 
