@@ -659,6 +659,41 @@ function flagWeekdayOutliers(entries) {
   });
 }
 
+// Returns the ISO date (yyyy-mm-dd) of the Monday belonging to the same
+// calendar week as the given date. Used to group pickup days into weeks
+// so a student can be assigned to a whole Mon-Fri week at once instead of
+// day-by-day. Since parseProviderWorkbook only ever emits weekday dates
+// (Mon-Fri), this is safe to compute directly from getDay() (1-5).
+function mondayOf(dateStr) {
+  const d = new Date(dateStr + "T00:00:00");
+  const dow = d.getDay(); // 1 = Mon ... 5 = Fri
+  d.setDate(d.getDate() - (dow - 1));
+  const pad = n => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Assigns one roster student per calendar week (Mon-Fri), not per day.
+// Entries are grouped by the Monday of their week in the order those weeks
+// first appear (entries are already sorted by date), then the roster is
+// cycled once per week group. A short week (e.g. a holiday removes a day)
+// still only spans that same week's Monday key, so it naturally gets fewer
+// days for that student instead of rolling into the next week.
+function assignStudentsByWeek(entries, roster) {
+  const weekOrder = [];
+  const weekIndexByKey = {};
+  entries.forEach(e => {
+    const wk = mondayOf(e.date);
+    if (!(wk in weekIndexByKey)) {
+      weekIndexByKey[wk] = weekOrder.length;
+      weekOrder.push(wk);
+    }
+  });
+  return entries.map(e => {
+    const weekIdx = weekIndexByKey[mondayOf(e.date)];
+    return { ...e, student: roster[weekIdx % roster.length] };
+  });
+}
+
 // Parses a roster CSV where each line is a single CSV field like:
 //   "Armstrong, Alexa M"
 //   "Dhillon, Seerat "
@@ -740,17 +775,11 @@ async function parseLunchFiles() {
       return;
     }
 
-    const combined = flagged.map((e, i) => ({
-      date: e.date,
-      provider: e.provider,
-      flagged: e.flagged,
-      student: roster[i % roster.length]
-    }));
-
-    pendingLunchData = combined;
+    const combined = assignStudentsByWeek(flagged, roster);
     const flagCount = combined.filter(e => e.flagged).length;
     status.className = "status ok";
     status.textContent = `Parsed ${combined.length} pickup days (${flagCount} flagged for review). Review below before importing.`;
+    pendingLunchData = combined;
     showLunchPreview(combined);
 
   } catch (err) {
